@@ -98,22 +98,27 @@ private:
 //! [WavetableOscillator bottom]
 
 //==============================================================================
-class MainContentComponent   : public juce::AudioAppComponent,
-                               public juce::Timer
+class MainContentComponent   : public juce::AudioAppComponent
+                               
 {
 public:
     MainContentComponent()
     {
-        cpuUsageLabel.setText ("CPU Usage", juce::dontSendNotification);
-        cpuUsageText.setJustificationType (juce::Justification::right);
-        addAndMakeVisible (cpuUsageLabel);
-        addAndMakeVisible (cpuUsageText);
+        addAndMakeVisible(openButton);
+        openButton.setButtonText("FileOpen...");
+        openButton.onClick = [this]{ openButtonClicked();};
+
+        addAndMakeVisible(clearButton);
+        clearButton.setButtonText("clear");
+        clearButton.onClick=[this]{clearButtonClicked();};
+
+        formatManager.registerBasicFormats();
 
         createWavetable();
 
-        setSize (400, 200);
+        setSize (400, 400);
         setAudioChannels (0, 2); // no inputs, two outputs
-        startTimer (50);
+
     }
 
     ~MainContentComponent() override
@@ -121,17 +126,22 @@ public:
         shutdownAudio();
     }
 
-    void resized() override
+    void releaseResources()override
     {
-        cpuUsageLabel.setBounds (10, 10, getWidth() - 20, 20);
-        cpuUsageText .setBounds (10, 10, getWidth() - 20, 20);
+        fileBuffer.setSize(0,0);
     }
 
-    void timerCallback() override
+    void resized() override
+    {
+        openButton .setBounds (10, 10, getWidth() - 20, 20);
+        clearButton.setBounds (10, 40, getWidth() - 20, 20);
+    }
+
+ /*   void timerCallback() override
     {
         auto cpu = deviceManager.getCpuUsage() * 100;
         cpuUsageText.setText (juce::String (cpu, 6) + " %", juce::dontSendNotification);
-    }
+    } */
 
 //! [MainContentComponent createWavetable top]
     void createWavetable()
@@ -140,8 +150,10 @@ public:
         auto* samples = sineTable.getWritePointer (0);
 //! [MainContentComponent createWavetable top]
 
-        auto angleDelta = juce::MathConstants<double>::twoPi / (double) (tableSize - 1);
-        auto currentAngle = 0.0;
+         auto angleDelta = juce::MathConstants<double>::twoPi / (double) (tableSize - 1);
+         auto currentAngle = 0.0;
+
+
 
         for (unsigned int i = 0; i < tableSize; ++i)
         {
@@ -173,7 +185,7 @@ public:
         level = 0.25f / (float) numberOfOscillators;
     }
 
-    void releaseResources() override {}
+
 
     void getNextAudioBlock (const juce::AudioSourceChannelInfo& bufferToFill) override
     {
@@ -197,9 +209,66 @@ public:
     }
 
 private:
-    juce::Label cpuUsageLabel;
-    juce::Label cpuUsageText;
 
+ void openButtonClicked()
+    {
+        shutdownAudio();                                                                            // [1]
+
+        chooser = std::make_unique<juce::FileChooser> ("Select a Wave file shorter than 2 seconds to play...",
+                                                       juce::File{},
+                                                       "*.wav");
+        auto chooserFlags = juce::FileBrowserComponent::openMode
+                          | juce::FileBrowserComponent::canSelectFiles;
+
+        chooser->launchAsync (chooserFlags, [this] (const juce::FileChooser& fc)
+        {
+            auto file = fc.getResult();
+
+            if (file == juce::File{})
+                return;
+
+            std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor (file)); // [2]
+
+            if (reader.get() != nullptr)
+            {
+                auto duration = (float) reader->lengthInSamples / reader->sampleRate;               // [3]
+
+                if (duration < 2)
+                {
+                    fileBuffer.setSize ((int) reader->numChannels, (int) reader->lengthInSamples);  // [4]
+                    reader->read (&fileBuffer,                                                      // [5]
+                                  0,                                                                //  [5.1]
+                                  (int) reader->lengthInSamples,                                    //  [5.2]
+                                  0,                                                                //  [5.3]
+                                  true,                                                             //  [5.4]
+                                  true);                                                            //  [5.5]
+                    position = 0;                                                                   // [6]
+                    setAudioChannels (0, (int) reader->numChannels);                                // [7]
+                }
+                else
+                {
+                    // handle the error that the file is 2 seconds or longer..
+                }
+            }
+        });
+    }
+
+    void clearButtonClicked()
+    {
+        shutdownAudio();
+    }
+
+ /* juce::Label cpuUsageLabel;
+    juce::Label cpuUsageText;        CPU処理関連    */
+    
+    // ファイル関連
+    juce::TextButton openButton;
+    juce::TextButton clearButton;
+    std::unique_ptr<juce::FileChooser> chooser;
+    juce::AudioFormatManager formatManager;
+    juce::AudioSampleBuffer fileBuffer;
+    int position;
+    
     const unsigned int tableSize = 1 << 7;
     float level = 0.0f;
 
