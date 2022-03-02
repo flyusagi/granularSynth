@@ -24,7 +24,7 @@
  BEGIN_JUCE_PIP_METADATA
 
  name:             WavetableSynthTutorial
- version:          4.0.0
+ version:          3.0.0
  vendor:           JUCE
  website:          http://juce.com
  description:      Wavetable synthesiser.
@@ -48,6 +48,7 @@
 #pragma once
 
 //==============================================================================
+//! [WavetableOscillator top]
 class WavetableOscillator
 {
 public:
@@ -57,17 +58,22 @@ public:
     {
         jassert (wavetable.getNumChannels() == 1);
     }
+//! [WavetableOscillator top]
 
+//! [WavetableOscillator setFrequency]
     void setFrequency (float frequency, float sampleRate)
     {
         auto tableSizeOverSampleRate = (float) tableSize / sampleRate;
         tableDelta = frequency * tableSizeOverSampleRate;
     }
+//! [WavetableOscillator setFrequency]
 
+//! [WavetableOscillator getNextSample]
     forcedinline float getNextSample() noexcept
     {
         auto index0 = (unsigned int) currentIndex;
         auto index1 = index0 + 1;
+//! [WavetableOscillator getNextSample]
 
         auto frac = currentIndex - (float) index0;
 
@@ -83,11 +89,13 @@ public:
         return currentSample;
     }
 
+//! [WavetableOscillator bottom]
 private:
     const juce::AudioSampleBuffer& wavetable;
     const int tableSize;
     float currentIndex = 0.0f, tableDelta = 0.0f;
 };
+//! [WavetableOscillator bottom]
 
 //==============================================================================
 class MainContentComponent   : public juce::AudioAppComponent,
@@ -125,37 +133,31 @@ public:
         cpuUsageText.setText (juce::String (cpu, 6) + " %", juce::dontSendNotification);
     }
 
+//! [MainContentComponent createWavetable top]
     void createWavetable()
     {
         sineTable.setSize (1, (int) tableSize + 1);
-        sineTable.clear();
-
         auto* samples = sineTable.getWritePointer (0);
+//! [MainContentComponent createWavetable top]
 
-        int harmonics[] = { 1, 3, 5, 6, 7, 9, 13, 15 };
-        float harmonicWeights[] = { 0.5f, 0.1f, 0.05f, 0.125f, 0.09f, 0.005f, 0.002f, 0.001f };     // [1]
+        auto angleDelta = juce::MathConstants<double>::twoPi / (double) (tableSize - 1);
+        auto currentAngle = 0.0;
 
-        jassert (juce::numElementsInArray (harmonics) == juce::numElementsInArray (harmonicWeights));
-
-        for (auto harmonic = 0; harmonic < juce::numElementsInArray (harmonics); ++harmonic)
+        for (unsigned int i = 0; i < tableSize; ++i)
         {
-            auto angleDelta = juce::MathConstants<double>::twoPi / (double) (tableSize - 1) * harmonics[harmonic]; // [2]
-            auto currentAngle = 0.0;
-
-            for (unsigned int i = 0; i < tableSize; ++i)
-            {
-                auto sample = std::sin (currentAngle);
-                samples[i] += (float) sample * harmonicWeights[harmonic];                           // [3]
-                currentAngle += angleDelta;
-            }
+            auto sample = std::sin (currentAngle);
+            samples[i] = (float) sample;
+            currentAngle += angleDelta;
         }
 
+//! [MainContentComponent createWavetable bottom]
         samples[tableSize] = samples[0];
     }
+//! [MainContentComponent createWavetable bottom]
 
     void prepareToPlay (int, double sampleRate) override
     {
-        auto numberOfOscillators = 10;
+        auto numberOfOscillators = 200;
 
         for (auto i = 0; i < numberOfOscillators; ++i)
         {
