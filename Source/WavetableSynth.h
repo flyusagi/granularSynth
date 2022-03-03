@@ -114,8 +114,6 @@ public:
 
         formatManager.registerBasicFormats();
 
-        createWavetable();
-
         setSize (400, 400);
         setAudioChannels (0, 2); // no inputs, two outputs
 
@@ -128,7 +126,7 @@ public:
 
     void releaseResources()override
     {
-        fileBuffer.setSize(0,0);
+
     }
 
     void resized() override
@@ -144,16 +142,14 @@ public:
     } */
 
 //! [MainContentComponent createWavetable top]
-    void createWavetable()
+/*    void createWavetable()
     {
         sineTable.setSize (1, (int) tableSize + 1);
         auto* samples = sineTable.getWritePointer (0);
-//! [MainContentComponent createWavetable top]
+
 
          auto angleDelta = juce::MathConstants<double>::twoPi / (double) (tableSize - 1);
          auto currentAngle = 0.0;
-
-
 
         for (unsigned int i = 0; i < tableSize; ++i)
         {
@@ -162,14 +158,14 @@ public:
             currentAngle += angleDelta;
         }
 
-//! [MainContentComponent createWavetable bottom]
+
         samples[tableSize] = samples[0];
-    }
+    } */
 //! [MainContentComponent createWavetable bottom]
 
     void prepareToPlay (int, double sampleRate) override
     {
-        auto numberOfOscillators = 200;
+/*        auto numberOfOscillators = 200;
 
         for (auto i = 0; i < numberOfOscillators; ++i)
         {
@@ -182,7 +178,7 @@ public:
             oscillators.add (oscillator);
         }
 
-        level = 0.25f / (float) numberOfOscillators;
+        level = 0.25f / (float) numberOfOscillators; */
     }
 
 
@@ -235,7 +231,7 @@ private:
 
                 if (duration < 2)
                 {
-                    fileBuffer.setSize ((int) reader->numChannels, (int) reader->lengthInSamples);  // [4]
+                    sineTable.setSize ((int) reader->numChannels, (int) reader->lengthInSamples);  // [4]
                     reader->read (&fileBuffer,                                                      // [5]
                                   0,                                                                //  [5.1]
                                   (int) reader->lengthInSamples,                                    //  [5.2]
@@ -268,7 +264,8 @@ private:
     juce::AudioFormatManager formatManager;
     juce::AudioSampleBuffer fileBuffer;
     int position;
-    
+    //ファイル関連
+
     const unsigned int tableSize = 1 << 7;
     float level = 0.0f;
 
