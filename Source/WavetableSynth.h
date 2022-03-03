@@ -123,13 +123,13 @@ public:
 
     struct GrainOscillator{
         int cnt = 0;
-        juce::AudioSampleBuffer table;
+        juce::AudioSampleBuffer grainTable;
         GrainOscillator(){
-            table.setSize(1, (int)tableSize + 1);
+            grainTable.setSize(1, (int)tableSize + 1);
         }
         void getNext (const juce::AudioSourceChannelInfo& bufferToFill, juce::AudioSampleBuffer& fileBuffer){
             int signalVecSize = bufferToFill.buffer->getNumSamples();
-            auto* grainBuffer = table.getWritePointer (0,0);
+            auto* grainBuffer = grainTable.getWritePointer (0,0);
 
             /*
             cnt 0 -> tableSize の区間で、こんなかんじの音量になるようにする
@@ -151,13 +151,13 @@ public:
                 rightBuffer[i] += grainBuffer[cnt] * calcMado(cnt,tableSize);
                 if(cnt == tableSize)
                 {
-                    auto start = rand() % (fileBuffer.getNumSamples() - table.getNumSamples());
-                    table.copyFrom( 0,
+                    auto start = rand() % (fileBuffer.getNumSamples() - grainTable.getNumSamples());
+                    grainTable.copyFrom( 0,
                                         0,
                                         fileBuffer,
                                         0,
                                         start,
-                                        table.getNumSamples());
+                                        grainTable.getNumSamples());
                     std::cout << i << " | " << start << std::endl;
                     cnt = 0;
                 }else{
@@ -170,7 +170,7 @@ public:
 
     void getNextAudioBlock (const juce::AudioSourceChannelInfo& bufferToFill) override
     {
-        if (!fileBufferReady || grain_oscs[0].table.getNumChannels() != 1){
+        if (!fileBufferReady || grain_oscs[0].grainTable.getNumChannels() != 1){
             return;
         }
 
@@ -207,9 +207,6 @@ private:
 
             if (reader.get() != nullptr)
             {
-                auto duration = (float) reader->lengthInSamples / reader->sampleRate;               // [3]
-
-
                 fileBuffer.setSize ((int) reader->numChannels, (int) reader->lengthInSamples);  // [4]
                 reader->read (&fileBuffer,                                                      // [5]
                                 0,                                                                //  [5.1]
