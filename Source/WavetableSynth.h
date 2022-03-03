@@ -46,57 +46,14 @@
 
 
 #pragma once
-#include <random> 
+#include <random>
+#include <cmath>
 
-//==============================================================================
-//! [WavetableOscillator top]
-class WavetableOscillator
-{
-public:
-    WavetableOscillator (const juce::AudioSampleBuffer& wavetableToUse)
-        : wavetable (wavetableToUse),
-          tableSize (wavetable.getNumSamples() - 1)
-    {
-        jassert (wavetable.getNumChannels() == 1);
-    }
-//! [WavetableOscillator top]
+constexpr int tableSize = 44100 / 2 ;
+constexpr int numOsc = 30;
 
-//! [WavetableOscillator setFrequency]
-    void setFrequency (float frequency, float sampleRate)
-    {
-        auto tableSizeOverSampleRate = (float) tableSize / sampleRate;
-        tableDelta = frequency * tableSizeOverSampleRate;
-    }
-//! [WavetableOscillator setFrequency]
+const double PI = 3.1415;
 
-//! [WavetableOscillator getNextSample]
-    forcedinline float getNextSample() noexcept
-    {
-        auto index0 = (unsigned int) currentIndex;
-        auto index1 = index0 + 1;
-//! [WavetableOscillator getNextSample]
-
-        auto frac = currentIndex - (float) index0;
-
-        auto* table = wavetable.getReadPointer (0);
-        auto value0 = table[index0];
-        auto value1 = table[index1];
-
-        auto currentSample = value0 + frac * (value1 - value0);
-
-        if ((currentIndex += tableDelta) > (float) tableSize)
-            currentIndex -= (float) tableSize;
-
-        return currentSample;
-    }
-
-//! [WavetableOscillator bottom]
-private:
-    const juce::AudioSampleBuffer& wavetable;
-    const int tableSize;
-    float currentIndex = 0.0f, tableDelta = 0.0f;
-};
-//! [WavetableOscillator bottom]
 
 //==============================================================================
 class MainContentComponent   : public juce::AudioAppComponent
@@ -119,6 +76,12 @@ public:
 
         setSize (400, 400);
         setAudioChannels (0, 2); // no inputs, two outputs
+
+        for (int i=0; i < numOsc; ++i){
+            grain_oscs[i].cnt = (tableSize / numOsc) * i;
+        }
+
+
 
     }
 
@@ -156,11 +119,67 @@ public:
         rate = sampleRate;
     }
 
+     static float calcMado(float i, float j) {
+        return 0.5 - 0.5 * cos(2. * PI * i / (j-1));
+    } 
+
+    struct GrainOscillator{
+        int cnt = 0;
+        juce::AudioSampleBuffer table;
+        GrainOscillator(){
+            table.setSize(1, (int)tableSize + 1);
+        }
+        void getNext (const juce::AudioSourceChannelInfo& bufferToFill, juce::AudioSampleBuffer& fileBuffer){
+            int signalVecSize = bufferToFill.buffer->getNumSamples();
+            auto* grainBuffer = table.getWritePointer (0,0);
+
+            /*
+            cnt 0 -> tableSize の区間で、こんなかんじの音量になるようにする
+                  ______
+               ／        \
+              /           \
+            _/             \_
+
+
+
+            ハン窓 = 0.5-0.5cos2pi(t/T)
+            */
+
+            auto* leftBuffer  = bufferToFill.buffer->getWritePointer (0, bufferToFill.startSample);
+            for (auto i = 0; i < signalVecSize; ++i)
+            {
+                leftBuffer[i] += grainBuffer[cnt] * calcMado(cnt, tableSize);
+                if(cnt == tableSize)
+                {
+                    auto start = rand() % (fileBuffer.getNumSamples() - table.getNumSamples());
+                    table.copyFrom( 0,
+                                        0,
+                                        fileBuffer,
+                                        0,
+                                        start,
+                                        table.getNumSamples());
+                    std::cout << i << " | " << start << std::endl;
+                    cnt = 0;
+                }else{
+                    ++cnt;
+                }
+            }
+        }
+    };
 
 
     void getNextAudioBlock (const juce::AudioSourceChannelInfo& bufferToFill) override
     {
-        if (grainTable.getNumChannels() != 1) return;
+        if (!fileBufferReady || grain_oscs[0].table.getNumChannels() != 1){
+            return;
+        }
+
+        bufferToFill.clearActiveBufferRegion();
+
+        for(int i=0; i < numOsc; ++i){
+            // バッファを渡して、それに書き加えてもらう
+            grain_oscs[i].getNext(bufferToFill, fileBuffer);
+        }
 
         /*
             前提：
@@ -180,26 +199,18 @@ public:
             これを繰り返す。
 
             sample     | 0 -> 1023 | 0 -> 1024 | 0 -> 1024 |
-            sineBuffer | 0 -> 1023 | 1024 -> 2047 | 2048 -> ... | ... | ->tableSize (ロードし直し) 0 -> 
+            grainBuffer | 0 -> 1023 | 1024 -> 2047 | 2048 -> ... | ... | ->tableSize (ロードし直し) 0 -> 
         */
-        auto* leftBuffer  = bufferToFill.buffer->getWritePointer (0, bufferToFill.startSample);
-       // auto* rightBuffer = bufferToFill.buffer->getWritePointer (1, bufferToFill.startSample);
+    //     auto* leftBuffer  = bufferToFill.buffer->getWritePointer (0, bufferToFill.startSample);
+    //    // auto* rightBuffer = bufferToFill.buffer->getWritePointer (1, bufferToFill.startSample);
 
-        int signalVecSize = bufferToFill.buffer->getNumSamples();
-        bufferToFill.clearActiveBufferRegion();
+    //     int signalVecSize = bufferToFill.buffer->getNumSamples();
 
-        auto* sineBuffer = grainTable.getWritePointer (0,0);
+    //     auto* grainBuffer = grainTable.getWritePointer (0,0);
 
-        for (auto sample = 0; sample < signalVecSize; ++sample)
-        {
-            leftBuffer[sample]  = sineBuffer[grainTableCounter];
-
-            // [1] これを書く
-            startSample = rand() % (grainTable.getNumSamples() - signalVecSize);
-            // ランダムに設定、エリアの制約は必要（後ろとかだとバッファ突き抜けちゃう）
-
-
-            // ここまでできたら、動作を確認して一度コミットする
+    //     for (auto sample = 0; sample < signalVecSize; ++sample)
+    //     {
+    //         leftBuffer[sample]  = grainBuffer[grainTableCounter];
 
             // [2]
             // それぞれのグレイン（grainTable）をフェードさせながらつないでいく
@@ -218,40 +229,24 @@ public:
             // grainTableに読み込むサンプル区間の長さをパラメータで制御できるようにしてみる
             
            
-            if(grainTableCounter == tableSize)
-            {
-                grainTable.copyFrom( 0,
-                                    0,
-                                    fileBuffer,
-                                    0,
-                                    startSample,
-                                    grainTable.getNumSamples());
+        //     if(grainTableCounter == tableSize)
+        //     {
+        //         auto start = rand() % (grainTable.getNumSamples() - signalVecSize);
+        //         grainTable.copyFrom( 0,
+        //                             0,
+        //                             fileBuffer,
+        //                             0,
+        //                             start,
+        //                             grainTable.getNumSamples());
 
-                grainTableCounter = 0;
-            }else{
-                ++grainTableCounter;
-            }
-        }
+        //         grainTableCounter = 0;
+        //     }else{
+        //         ++grainTableCounter;
+        //     }
+        // }
     }
 
 private:
- void createWaveTable()
-    {
-        auto numberOfOscillators = 200;
-
-        for (auto i = 0; i < numberOfOscillators; ++i)
-        {
-            auto* oscillator = new WavetableOscillator (grainTable);
-
-            auto midiNote = juce::Random::getSystemRandom().nextDouble() * 36.0 + 48.0;
-            auto frequency = 440.0 * pow (2.0, (midiNote - 69.0) / 12.0);
-
-            oscillator->setFrequency ((float) frequency, (float) rate);
-            oscillators.add (oscillator);
-        }
-
-        level = 0.25f / (float) numberOfOscillators;
-    }
 
  void openButtonClicked()
     {
@@ -276,34 +271,19 @@ private:
             {
                 auto duration = (float) reader->lengthInSamples / reader->sampleRate;               // [3]
 
-                if (duration < 2)
-                {
-                    fileBuffer.setSize ((int) reader->numChannels, (int) reader->lengthInSamples);  // [4]
-                    reader->read (&fileBuffer,                                                      // [5]
-                                  0,                                                                //  [5.1]
-                                  (int) reader->lengthInSamples,                                    //  [5.2]
-                                  0,                                                                //  [5.3]
-                                  true,                                                             //  [5.4]
-                                  true);                                                            //  [5.5]
-                    position = 0;                                                                   // [6]
-                    setAudioChannels (0, (int) reader->numChannels);                                // [7]
+
+                fileBuffer.setSize ((int) reader->numChannels, (int) reader->lengthInSamples);  // [4]
+                reader->read (&fileBuffer,                                                      // [5]
+                                0,                                                                //  [5.1]
+                                (int) reader->lengthInSamples,                                    //  [5.2]
+                                0,                                                                //  [5.3]
+                                true,                                                             //  [5.4]
+                                true);                                                            //  [5.5]
+                position = 0;                                                                   // [6]
+                setAudioChannels (0, (int) reader->numChannels);                                // [7]
+                fileBufferReady = true;
                 
-                    grainTable.setSize(1, (int)tableSize + 1);
-
-                    grainTable.copyFrom(0,
-                        0,
-                        fileBuffer,
-                        0,
-                        0,
-                        grainTable.getNumSamples());
-
-                    createWaveTable();
-                    
-                }
-                else
-                {
-                    // handle the error that the file is 2 seconds or longer..
-                }
+               
             }
         });
     }
@@ -324,17 +304,15 @@ private:
     juce::AudioSampleBuffer fileBuffer;
     int position;
     //ファイル関連
+    bool fileBufferReady = false;
 
-    const int tableSize = 44100 / 4;
     float level = 0.0f;
 
     double rate;
-
-    juce::AudioSampleBuffer grainTable;
-    int grainTableCounter = 0;
     int startSample;
 
-    juce::OwnedArray<WavetableOscillator> oscillators;
+    // GrainOsc
+    std::array<GrainOscillator, numOsc> grain_oscs;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainContentComponent)
 };
