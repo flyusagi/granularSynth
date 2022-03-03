@@ -46,6 +46,7 @@
 
 
 #pragma once
+#include <random> 
 
 //==============================================================================
 //! [WavetableOscillator top]
@@ -114,6 +115,8 @@ public:
 
         formatManager.registerBasicFormats();
 
+        std::srand(time(NULL));
+
         setSize (400, 400);
         setAudioChannels (0, 2); // no inputs, two outputs
 
@@ -144,67 +147,111 @@ public:
 //! [MainContentComponent createWavetable top]
 /*    void createWavetable()
     {
-        sineTable.setSize (1, (int) tableSize + 1);
-        auto* samples = sineTable.getWritePointer (0);
-
-
-         auto angleDelta = juce::MathConstants<double>::twoPi / (double) (tableSize - 1);
-         auto currentAngle = 0.0;
-
-        for (unsigned int i = 0; i < tableSize; ++i)
-        {
-            auto sample = std::sin (currentAngle);
-            samples[i] = (float) sample;
-            currentAngle += angleDelta;
-        }
-
-
-        samples[tableSize] = samples[0];
-    } */
+        grainTable.makeCopyOf(&fileBuffer);
+    } */ 
 //! [MainContentComponent createWavetable bottom]
 
     void prepareToPlay (int, double sampleRate) override
     {
-/*        auto numberOfOscillators = 200;
-
-        for (auto i = 0; i < numberOfOscillators; ++i)
-        {
-            auto* oscillator = new WavetableOscillator (sineTable);
-
-            auto midiNote = juce::Random::getSystemRandom().nextDouble() * 36.0 + 48.0;
-            auto frequency = 440.0 * pow (2.0, (midiNote - 69.0) / 12.0);
-
-            oscillator->setFrequency ((float) frequency, (float) sampleRate);
-            oscillators.add (oscillator);
-        }
-
-        level = 0.25f / (float) numberOfOscillators; */
+        rate = sampleRate;
     }
 
 
 
     void getNextAudioBlock (const juce::AudioSourceChannelInfo& bufferToFill) override
     {
-        auto* leftBuffer  = bufferToFill.buffer->getWritePointer (0, bufferToFill.startSample);
-        auto* rightBuffer = bufferToFill.buffer->getWritePointer (1, bufferToFill.startSample);
+        if (grainTable.getNumChannels() != 1) return;
 
+        /*
+            前提：
+            ・grainTableが存在する。長さはtableSize+1
+            ・grainTableCounterは、前回（grainTable分）どこまで再生したかを覚えておくためのカウンタ
+            ・fileBufferにオーディオファイルが一本まるごと読み込まれている
+            ・読み込みオーディオデータは、以下の条件を満たす。
+                ・空白期間がない。
+                ・単一のピッチである。
+                ・そこそこ長いデータ（4秒以上くらいはあるといいかも）
+
+            シグナルベクタ分のオーディオサンプルを生成してbufferToFillに書き込む。
+
+            大まかな流れ：
+            fileBufferからtableSize分読み込む。（最初のwavロード時にも1回読み込む）
+            tableSize分再生して、再生しきったらfileBufferのランダムな位置からtableSize分コピーしてくる。
+            これを繰り返す。
+
+            sample     | 0 -> 1023 | 0 -> 1024 | 0 -> 1024 |
+            sineBuffer | 0 -> 1023 | 1024 -> 2047 | 2048 -> ... | ... | ->tableSize (ロードし直し) 0 -> 
+        */
+        auto* leftBuffer  = bufferToFill.buffer->getWritePointer (0, bufferToFill.startSample);
+       // auto* rightBuffer = bufferToFill.buffer->getWritePointer (1, bufferToFill.startSample);
+
+        int signalVecSize = bufferToFill.buffer->getNumSamples();
         bufferToFill.clearActiveBufferRegion();
 
-        for (auto oscillatorIndex = 0; oscillatorIndex < oscillators.size(); ++oscillatorIndex)
+        auto* sineBuffer = grainTable.getWritePointer (0,0);
+
+        for (auto sample = 0; sample < signalVecSize; ++sample)
         {
-            auto* oscillator = oscillators.getUnchecked (oscillatorIndex);
+            leftBuffer[sample]  = sineBuffer[grainTableCounter];
 
-            for (auto sample = 0; sample < bufferToFill.numSamples; ++sample)
+            // [1] これを書く
+            startSample = rand() % (grainTable.getNumSamples() - signalVecSize);
+            // ランダムに設定、エリアの制約は必要（後ろとかだとバッファ突き抜けちゃう）
+
+
+            // ここまでできたら、動作を確認して一度コミットする
+
+            // [2]
+            // それぞれのグレイン（grainTable）をフェードさせながらつないでいく
+            // 位相が半分ずれた二つのtableを用意して、クロスフェードさせながらつなぐ
+            /*
+                こんなかんじ：
+                ts = tableSize
+                grainTable[0] | 0 -----> ts | 0 ------------------> ts | 
+                grainTable[1] |     | 0 -------------> ts| 0 -----------------> ts |
+                片方が真ん中くらいを再生している間に、もう片方が切り替え＆ロードを行う
+                それぞれのtableは別個にデータを持つ
+            */
+
+            // [3]
+            // grainTableを20個くらいにしてみる -> ここまでやると、だいぶグラニュラーっぽい音がでるはず！
+            // grainTableに読み込むサンプル区間の長さをパラメータで制御できるようにしてみる
+            
+           
+            if(grainTableCounter == tableSize)
             {
-                auto levelSample = oscillator->getNextSample() * level;
+                grainTable.copyFrom( 0,
+                                    0,
+                                    fileBuffer,
+                                    0,
+                                    startSample,
+                                    grainTable.getNumSamples());
 
-                leftBuffer[sample]  += levelSample;
-                rightBuffer[sample] += levelSample;
+                grainTableCounter = 0;
+            }else{
+                ++grainTableCounter;
             }
         }
     }
 
 private:
+ void createWaveTable()
+    {
+        auto numberOfOscillators = 200;
+
+        for (auto i = 0; i < numberOfOscillators; ++i)
+        {
+            auto* oscillator = new WavetableOscillator (grainTable);
+
+            auto midiNote = juce::Random::getSystemRandom().nextDouble() * 36.0 + 48.0;
+            auto frequency = 440.0 * pow (2.0, (midiNote - 69.0) / 12.0);
+
+            oscillator->setFrequency ((float) frequency, (float) rate);
+            oscillators.add (oscillator);
+        }
+
+        level = 0.25f / (float) numberOfOscillators;
+    }
 
  void openButtonClicked()
     {
@@ -231,7 +278,7 @@ private:
 
                 if (duration < 2)
                 {
-                    sineTable.setSize ((int) reader->numChannels, (int) reader->lengthInSamples);  // [4]
+                    fileBuffer.setSize ((int) reader->numChannels, (int) reader->lengthInSamples);  // [4]
                     reader->read (&fileBuffer,                                                      // [5]
                                   0,                                                                //  [5.1]
                                   (int) reader->lengthInSamples,                                    //  [5.2]
@@ -240,6 +287,18 @@ private:
                                   true);                                                            //  [5.5]
                     position = 0;                                                                   // [6]
                     setAudioChannels (0, (int) reader->numChannels);                                // [7]
+                
+                    grainTable.setSize(1, (int)tableSize + 1);
+
+                    grainTable.copyFrom(0,
+                        0,
+                        fileBuffer,
+                        0,
+                        0,
+                        grainTable.getNumSamples());
+
+                    createWaveTable();
+                    
                 }
                 else
                 {
@@ -266,10 +325,15 @@ private:
     int position;
     //ファイル関連
 
-    const unsigned int tableSize = 1 << 7;
+    const int tableSize = 44100 / 4;
     float level = 0.0f;
 
-    juce::AudioSampleBuffer sineTable;
+    double rate;
+
+    juce::AudioSampleBuffer grainTable;
+    int grainTableCounter = 0;
+    int startSample;
+
     juce::OwnedArray<WavetableOscillator> oscillators;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainContentComponent)
