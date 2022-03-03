@@ -50,7 +50,7 @@
 #include <cmath>
 
 constexpr int tableSize = 44100 / 2 ;
-constexpr int numOsc = 30;
+constexpr int numOsc = 15;
 
 const double PI = 3.1415;
 
@@ -115,9 +115,7 @@ public:
 //! [MainContentComponent createWavetable bottom]
 
     void prepareToPlay (int, double sampleRate) override
-    {
-        rate = sampleRate;
-    }
+    {   }
 
      static float calcMado(float i, float j) {
         return 0.5 - 0.5 * cos(2. * PI * i / (j-1));
@@ -146,9 +144,11 @@ public:
             */
 
             auto* leftBuffer  = bufferToFill.buffer->getWritePointer (0, bufferToFill.startSample);
+            auto* rightBuffer = bufferToFill.buffer->getWritePointer(1,bufferToFill.startSample);
             for (auto i = 0; i < signalVecSize; ++i)
             {
                 leftBuffer[i] += grainBuffer[cnt] * calcMado(cnt, tableSize);
+                rightBuffer[i] += grainBuffer[cnt] * calcMado(cnt,tableSize);
                 if(cnt == tableSize)
                 {
                     auto start = rand() % (fileBuffer.getNumSamples() - table.getNumSamples());
@@ -177,73 +177,11 @@ public:
         bufferToFill.clearActiveBufferRegion();
 
         for(int i=0; i < numOsc; ++i){
-            // バッファを渡して、それに書き加えてもらう
+          
             grain_oscs[i].getNext(bufferToFill, fileBuffer);
         }
 
-        /*
-            前提：
-            ・grainTableが存在する。長さはtableSize+1
-            ・grainTableCounterは、前回（grainTable分）どこまで再生したかを覚えておくためのカウンタ
-            ・fileBufferにオーディオファイルが一本まるごと読み込まれている
-            ・読み込みオーディオデータは、以下の条件を満たす。
-                ・空白期間がない。
-                ・単一のピッチである。
-                ・そこそこ長いデータ（4秒以上くらいはあるといいかも）
 
-            シグナルベクタ分のオーディオサンプルを生成してbufferToFillに書き込む。
-
-            大まかな流れ：
-            fileBufferからtableSize分読み込む。（最初のwavロード時にも1回読み込む）
-            tableSize分再生して、再生しきったらfileBufferのランダムな位置からtableSize分コピーしてくる。
-            これを繰り返す。
-
-            sample     | 0 -> 1023 | 0 -> 1024 | 0 -> 1024 |
-            grainBuffer | 0 -> 1023 | 1024 -> 2047 | 2048 -> ... | ... | ->tableSize (ロードし直し) 0 -> 
-        */
-    //     auto* leftBuffer  = bufferToFill.buffer->getWritePointer (0, bufferToFill.startSample);
-    //    // auto* rightBuffer = bufferToFill.buffer->getWritePointer (1, bufferToFill.startSample);
-
-    //     int signalVecSize = bufferToFill.buffer->getNumSamples();
-
-    //     auto* grainBuffer = grainTable.getWritePointer (0,0);
-
-    //     for (auto sample = 0; sample < signalVecSize; ++sample)
-    //     {
-    //         leftBuffer[sample]  = grainBuffer[grainTableCounter];
-
-            // [2]
-            // それぞれのグレイン（grainTable）をフェードさせながらつないでいく
-            // 位相が半分ずれた二つのtableを用意して、クロスフェードさせながらつなぐ
-            /*
-                こんなかんじ：
-                ts = tableSize
-                grainTable[0] | 0 -----> ts | 0 ------------------> ts | 
-                grainTable[1] |     | 0 -------------> ts| 0 -----------------> ts |
-                片方が真ん中くらいを再生している間に、もう片方が切り替え＆ロードを行う
-                それぞれのtableは別個にデータを持つ
-            */
-
-            // [3]
-            // grainTableを20個くらいにしてみる -> ここまでやると、だいぶグラニュラーっぽい音がでるはず！
-            // grainTableに読み込むサンプル区間の長さをパラメータで制御できるようにしてみる
-            
-           
-        //     if(grainTableCounter == tableSize)
-        //     {
-        //         auto start = rand() % (grainTable.getNumSamples() - signalVecSize);
-        //         grainTable.copyFrom( 0,
-        //                             0,
-        //                             fileBuffer,
-        //                             0,
-        //                             start,
-        //                             grainTable.getNumSamples());
-
-        //         grainTableCounter = 0;
-        //     }else{
-        //         ++grainTableCounter;
-        //     }
-        // }
     }
 
 private:
