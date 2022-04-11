@@ -1,58 +1,9 @@
-/*
-  ==============================================================================
-
-   This file is part of the JUCE tutorials.
-   Copyright (c) 2020 - Raw Material Software Limited
-
-   The code included in this file is provided under the terms of the ISC license
-   http://www.isc.org/downloads/software-support-policy/isc-license. Permission
-   To use, copy, modify, and/or distribute this software for any purpose with or
-   without fee is hereby granted provided that the above copyright notice and
-   this permission notice appear in all copies.
-
-   THE SOFTWARE IS PROVIDED "AS IS" WITHOUT ANY WARRANTY, AND ALL WARRANTIES,
-   WHETHER EXPRESSED OR IMPLIED, INCLUDING MERCHANTABILITY AND FITNESS FOR
-   PURPOSE, ARE DISCLAIMED.
-
-  ==============================================================================
-*/
-
-/*******************************************************************************
- The block below describes the properties of this PIP. A PIP is a short snippet
- of code that can be read by the Projucer and used to generate a JUCE project.
-
- BEGIN_JUCE_PIP_METADATA
-
- name:             WavetableSynthTutorial
- version:          3.0.0
- vendor:           JUCE
- website:          http://juce.com
- description:      Wavetable synthesiser.
-
- dependencies:     juce_audio_basics, juce_audio_devices, juce_audio_formats,
-                   juce_audio_processors, juce_audio_utils, juce_core,
-                   juce_data_structures, juce_events, juce_graphics,
-                   juce_gui_basics, juce_gui_extra
- exporters:        xcode_mac, vs2019, linux_make
-
- type:             Component
- mainClass:        MainContentComponent
-
- useLocalCopy:     1
-
- END_JUCE_PIP_METADATA
-
-*******************************************************************************/
-
-
 #pragma once
 #include <random>
 #include <cmath>
 
-constexpr int tableSize = 44100 / 2 ;
-constexpr int numOsc = 15;
-
-const double PI = 3.1415;
+constexpr int grainSize = 44100 / 2 ;
+constexpr int numOsc = 5;
 
 
 //==============================================================================
@@ -78,7 +29,7 @@ public:
         setAudioChannels (0, 2); // no inputs, two outputs
 
         for (int i=0; i < numOsc; ++i){
-            grain_oscs[i].cnt = (tableSize / numOsc) * i;
+            grain_oscs[i].cnt = (grainSize / numOsc) * i;
         }
 
 
@@ -115,24 +66,29 @@ public:
 //! [MainContentComponent createWavetable bottom]
 
     void prepareToPlay (int, double sampleRate) override
-    {   }
+    {}
 
-     static float calcMado(float i, float j) {
+    static float calcMado(float i, float j) {
+        const double PI = 3.1415;
         return 0.5 - 0.5 * cos(2. * PI * i / (j-1));
     } 
 
     struct GrainOscillator{
+        std::random_device rnd;
+        float* rightBuffer;
         int cnt = 0;
         juce::AudioSampleBuffer grainTable;
+
         GrainOscillator(){
-            grainTable.setSize(1, (int)tableSize + 1);
+            grainTable.setSize(1, (int)grainSize + 1);
         }
+
         void getNext (const juce::AudioSourceChannelInfo& bufferToFill, juce::AudioSampleBuffer& fileBuffer){
             int signalVecSize = bufferToFill.buffer->getNumSamples();
             auto* grainBuffer = grainTable.getWritePointer (0,0);
 
             /*
-            cnt 0 -> tableSize の区間で、こんなかんじの音量になるようにする
+            cnt 0 -> grainSize の区間で、こんなかんじの音量になるようにする
                   ______
                ／        \
               /           \
@@ -144,20 +100,28 @@ public:
             */
 
             auto* leftBuffer  = bufferToFill.buffer->getWritePointer (0, bufferToFill.startSample);
-            auto* rightBuffer = bufferToFill.buffer->getWritePointer(1,bufferToFill.startSample);
+            
+            if(bufferToFill.buffer->getNumChannels() > 1){
+                rightBuffer = bufferToFill.buffer->getWritePointer(1, bufferToFill.startSample);
+            }
+          
             for (auto i = 0; i < signalVecSize; ++i)
             {
-                leftBuffer[i] += grainBuffer[cnt] * calcMado(cnt, tableSize);
-                rightBuffer[i] += grainBuffer[cnt] * calcMado(cnt,tableSize);
-                if(cnt == tableSize)
+                leftBuffer[i] += grainBuffer[cnt] * calcMado(cnt, grainSize);
+                
+                if (bufferToFill.buffer->getNumChannels() > 1) {
+                    rightBuffer[i] += grainBuffer[cnt] * calcMado(cnt, grainSize);
+                }
+
+                if(cnt == grainSize)
                 {
-                    auto start = rand() % (fileBuffer.getNumSamples() - grainTable.getNumSamples());
+                    auto start = rnd() % (fileBuffer.getNumSamples());
                     grainTable.copyFrom( 0,
                                         0,
                                         fileBuffer,
                                         0,
                                         start,
-                                        grainTable.getNumSamples());
+                                        grainTable.getNumSamples()); //grainTableにファイルをコピーする（どこからコピーするかはランダム）
                     std::cout << i << " | " << start << std::endl;
                     cnt = 0;
                 }else{
@@ -190,7 +154,7 @@ private:
     {
         shutdownAudio();                                                                            // [1]
 
-        chooser = std::make_unique<juce::FileChooser> ("Select a Wave file shorter than 2 seconds to play...",
+        chooser = std::make_unique<juce::FileChooser> ("Select a Wave file",
                                                        juce::File{},
                                                        "*.wav");
         auto chooserFlags = juce::FileBrowserComponent::openMode
